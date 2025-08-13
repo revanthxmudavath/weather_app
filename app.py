@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from io import BytesIO
 import json
 import pandas as pd
 import streamlit as st
@@ -10,6 +11,9 @@ from utils import icon_emoji, fmt_dt
 from typing import Optional
 from db_ops import save_request, get_requests, delete_request, list_requests, update_request
 from db import init_db
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from xml.sax.saxutils import escape as xml_escape
 
 init_db()
     
@@ -109,6 +113,56 @@ def pick_location_ui(default_query: str = "") -> Optional[dict]:
             return results
     return None
 
+def daily_forecasts_to_df(dfs):
+    return pd.DataFrame([{
+        "date": fmt_dt(d.get("Date","")),
+        "min": d.get("Temperature",{}).get("Minimum",{}).get("Value"),
+        "max": d.get("Temperature",{}).get("Maximum",{}).get("Value"),
+        "day": d.get("Day",{}).get("IconPhrase"),
+        "night": d.get("Night",{}).get("IconPhrase")
+    } for d in dfs])
+
+def df_to_xml(df: pd.DataFrame, root_tag="Forecast", row_tag="Day"):
+    lines = [f"<{root_tag}>"]
+    for _, row in df.iterrows():
+        lines.append(f"  <{row_tag}>")
+        for col, val in row.items():
+            text = "" if pd.isna(val) else str(val)
+            lines.append(f"    <{col}>{xml_escape(text)}</{col}>")
+        lines.append(f"  </{row_tag}>")
+    lines.append(f"</{root_tag}>")
+    return "\n".join(lines)
+
+def df_to_pdf_bytes(df: pd.DataFrame, title="Weather Forecast"):
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    width, height = letter
+    x = 40
+    y = height - 50
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(x, y, title)
+    y -= 20
+    c.setFont("Helvetica", 10)
+    
+    headers = list(df.columns)
+    c.drawString(x, y, " | ".join(headers))
+    y -= 15
+    c.line(x, y, width - x, y)
+    y -= 15
+    
+    for _, row in df.iterrows():
+        line = " | ".join("" if pd.isna(v) else str(v) for v in row.tolist())
+        if y < 50:
+            c.showPage()
+            y = height - 50
+        c.drawString(x, y, line)
+        y -= 15
+    c.showPage()
+    c.save()
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
 tabs = st.tabs(["Search", "Saved Requests"])
 
     
@@ -200,34 +254,26 @@ with tabs[0]:
                 rid = save_request(location_key, label, str(start_date), str(end_date), units, f)
                 st.success(f"Saved request #{rid} for {label}.")
 
-
 with tabs[1]:
     st.subheader("Saved Requests")
     reqs = list_requests()
     if not reqs:
         st.info("No saved requests yet.")
     else:
-        
         display = [f"#{r[0]} — {r[1]} [{r[2]} → {r[3]}] ({r[4]})" for r in reqs]
         idx = st.selectbox("Select", options=list(range(len(display))), format_func=lambda i: display[i])
         rid = reqs[idx][0]
 
-        row = get_requests(rid)  
+        row = get_requests(rid)
         if row:
-            st.markdown(f"**Location:** {row[2]}  \n**Dates:** {row[3]} → {row[4]}  \n**Units:** {row[5]}")
+            st.markdown(f"**Location:** {row[2]}  \\n**Dates:** {row[3]} → {row[4]}  \\n**Units:** {row[5]}")
             try:
                 data = json.loads(row[6]) if row[6] else {}
             except Exception:
                 data = {}
             dfs = data.get("DailyForecasts", []) if isinstance(data, dict) else []
             if dfs:
-                df = pd.DataFrame([{
-                    "date": fmt_dt(d.get("Date","")),
-                    "min": d.get("Temperature",{}).get("Minimum",{}).get("Value"),
-                    "max": d.get("Temperature",{}).get("Maximum",{}).get("Value"),
-                    "day": d.get("Day",{}).get("IconPhrase"),
-                    "night": d.get("Night",{}).get("IconPhrase")
-                } for d in dfs])
+                df = daily_forecasts_to_df(dfs)
                 st.dataframe(df, use_container_width=True)
 
             st.divider()
@@ -242,30 +288,25 @@ with tabs[1]:
                 new_end   = st.date_input("New end",   key=f"upd_end_{rid}",   value=old_end)
 
                 if st.button("Update", key=f"upd_btn_{rid}"):
-                    
                     if new_start > new_end:
                         st.error("Start date must be ≤ end date.")
                         st.stop()
-
-                   
                     if new_start < old_start:
                         st.error(f"You can only update within the original start date ({old_start}).")
                         st.stop()
                     if new_end > old_end:
                         st.error(f"You can only update within the original end date ({old_end}).")
                         st.stop()
-
                     try:
                         current_json = json.loads(row[6]) if row[6] else {}
                     except Exception:
                         current_json = {}
-
                     sliced = _slice_forecast_json(current_json, str(new_start), str(new_end))
                     days = sliced.get("DailyForecasts", [])
                     if not days:
                         st.warning("No days remain in that range. Nothing to update.")
                     else:
-                        update_request(rid, str(new_start), str(new_end), sliced)  
+                        update_request(rid, str(new_start), str(new_end), sliced)
                         st.success(f"Updated! Kept {len(days)} day(s) within {new_start} → {new_end}.")
 
             # DELETE
@@ -274,6 +315,25 @@ with tabs[1]:
                 if st.button("Delete request", key=f"del_btn_{rid}"):
                     delete_request(rid)
                     st.success("Deleted. Refresh the list from the select box.")
+
+            # EXPORT
+            with col3:
+                st.markdown("**Export**")
+                if dfs:
+                    fmt = st.selectbox("Format", ["CSV", "JSON", "XML", "PDF"], index=0)
+                    fname_base = f"weather_request_{row[0]}"
+                    if fmt == "CSV":
+                        csv_bytes = df.to_csv(index=False).encode()
+                        st.download_button("Download CSV", csv_bytes, file_name=f"{fname_base}.csv", mime="text/csv")
+                    elif fmt == "JSON":
+                        json_bytes = json.dumps(data, indent=2).encode()
+                        st.download_button("Download JSON", json_bytes, file_name=f"{fname_base}.json", mime="application/json")
+                    elif fmt == "XML":
+                        xml_str = df_to_xml(df, root_tag="Forecast", row_tag="Day")
+                        st.download_button("Download XML", xml_str.encode(), file_name=f"{fname_base}.xml", mime="application/xml")
+                    elif fmt == "PDF":
+                        pdf_bytes = df_to_pdf_bytes(df, title=f"Forecast for {row[2]}")
+                        st.download_button("Download PDF", pdf_bytes, file_name=f"{fname_base}.pdf", mime="application/pdf")
 
 st.markdown("---")
 st.caption("Tip: Enter GPS like `37.7749,-122.4194` for precision.")
