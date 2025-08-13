@@ -11,6 +11,7 @@
     - Browse previously saved requests
     - Update the saved date range (only within the original window; extra days get trimmed)
     - Delete any saved request
+    - Export as downloadable files (JSON, CSV, XML, PDF) 
 
      How location search works
 
@@ -27,7 +28,7 @@
     - SQLite (built-in Python `sqlite3`) for a no-setup local database
     - Pandas only for displaying/ exporting tables
 
-     Files (high level)
+     Files
 
     - `app.py` — Streamlit app (search UI, display, and CRUD tabs)
     - `accuweather_client.py` — tiny client for AccuWeather endpoints
@@ -36,7 +37,8 @@
     - `utils.py` — small helpers (emoji icons, date formatting)
     - `requirements.txt` — dependencies
     - `.env` — put your AccuWeather API key here as `ACCUWEATHER_API_KEY=...`
-        
+
+      
      Quick Start
 
     1) Create and fill `.env` 
