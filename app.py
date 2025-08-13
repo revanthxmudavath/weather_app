@@ -18,9 +18,45 @@ from xml.sax.saxutils import escape as xml_escape
 init_db()
     
 st.set_page_config(page_title="Weather • AccuWeather", page_icon="⛅", layout="centered")
-st.title("⛅ Weather App")
 
+c_head_1, c_head_2 = st.columns([6,1])
+
+with c_head_1:
+    st.title("⛅ Weather App")
+    st.caption("Built by **Revanth Mudavath**")
+
+with c_head_2:
     
+    if "show_info" not in st.session_state:
+        st.session_state.show_info = False
+    if st.button("☰ Info"):
+        st.session_state.show_info = not st.session_state.show_info
+
+
+if st.session_state.show_info:
+    st.sidebar.title("About PM Accelerator")
+    st.sidebar.markdown("""
+**Product Manager Accelerator (PMA)**
+
+The Product Manager Accelerator Program is designed to support PM professionals through every stage of their careers. From students looking for entry-level jobs to Directors looking to take on a leadership role, our program has helped over hundreds of students fulfill their career aspirations.
+
+Our Product Manager Accelerator community are ambitious and committed. Through our program they have learnt, honed and developed new PM and leadership skills, giving them a strong foundation for their future endeavors.
+
+**Services we offer**  
+- 🚀 **PMA Pro** – End-to-end product manager job hunting program that helps you master FAANG-level Product Management skills, conduct unlimited mock interviews, and gain job referrals through our largest alumni network. 25% of our offers came from tier 1 companies and get paid as high as $800K/year.  
+- 🚀 **AI PM Bootcamp** – Gain hands-on AI Product Management skills by building a real-life AI product with a team of AI Engineers, data scientists, and designers. We will also help you launch your product with real user engagement using our 100,000+ PM community and social media channels.  
+- 🚀 **PMA Power Skills** – Designed for existing product managers to sharpen their product management skills, leadership skills, and executive presentation skills  
+- 🚀 **PMA Leader** – We help you accelerate your product management career, get promoted to Director and product executive levels, and win in the board room.  
+- 🚀 **1:1 Resume Review** – We help you rewrite your killer product manager resume to stand out from the crowd, with an interview guarantee.  
+  Get started with the FREE killer PM resume template used by over 14,000 product managers: https://www.drnancyli.com/pmresume
+
+We also published over **500+ free trainings and courses**.  
+YouTube: https://www.youtube.com/c/drnancyli  
+Instagram: @drnancyli
+
+LinkedIn page: *Product Manager Accelerator*
+""")
+
 @st.cache_data(show_spinner=False, ttl=600)
 def _search_location(query: str):
        
